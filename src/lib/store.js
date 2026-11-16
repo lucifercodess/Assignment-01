@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { categorize, keyOf } from './categorize'
-import { parseMessage } from './parser'
+import { parseMessage, reviewReason, guessAmount } from './parser'
 
 const KEY = 'tripwise:v1'
 
@@ -11,6 +11,7 @@ const initial = {
   learned: {},
   seen: {}, // ids / refs already imported (dedupe)
   pending: null, // UPI payment awaiting confirmation
+  review: [], // forwarded SMS that mention money but couldn't be read automatically
   settings: { syncKey: '', syncUrl: '/api/ingest', lastSync: 0, includeCredits: false },
 }
 
@@ -71,6 +72,7 @@ export function useStore() {
     },
     deleteExpense(id) { update((s) => ({ expenses: s.expenses.filter((e) => e.id !== id) })) },
 
+    dismissReview(id) { update((s) => ({ review: s.review.filter((r) => r.id !== id) })) },
     setPending(p) { update(() => ({ pending: p })) },
     setSettings(patch) { update((s) => ({ settings: { ...s.settings, ...patch } })) },
     replaceAll(data) { setState({ ...initial, ...data }) },
@@ -84,7 +86,6 @@ export function useStore() {
       const linked = {}
       for (const p of list) {
         if (!p) continue
-        if (p.type === 'credit' && !s.settings.includeCredits) continue
         const dk = p.ref ? 'ref:' + p.ref : null
         if ((dk && has(dk)) || (p.inboxId && has('in:' + p.inboxId))) continue
         if (dk) newSeen[dk] = 1
@@ -117,16 +118,26 @@ export function useStore() {
       const j = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(j.error || `Sync failed (${r.status})`)
       const start = trip?.start ? +new Date(trip.start + 'T00:00') : 0
-      const parsed = (j.items || [])
-        .filter((it) => it.ts >= start)
-        .map((it) => {
-          const p = parseMessage(it.text, it.ts)
-          return p && { ...p, inboxId: it.id }
-        })
-        .filter(Boolean)
+      const items = (j.items || []).filter((it) => it.ts >= start)
+      const parsed = []
+      const review = []
+      const cur = ref.current
+      for (const it of items) {
+        const p = parseMessage(it.text, it.ts)
+        if (p) { parsed.push({ ...p, inboxId: it.id }); continue }
+        const reason = reviewReason(it.text)
+        if (reason && !cur.seen['in:' + it.id] && !cur.review.some((r) => r.id === it.id)) {
+          review.push({ id: it.id, ts: it.ts, text: it.text, sender: it.sender, reason, amount: guessAmount(it.text), tripId: cur.activeTripId })
+        }
+      }
       const added = actions.importParsed(parsed, 'auto')
-      actions.setSettings({ lastSync: Date.now() })
-      return { added }
+      const lastInboxTs = Math.max(cur.settings.lastInboxTs || 0, ...(j.items || []).map((i) => i.ts))
+      update((s) => ({
+        review: [...review, ...s.review],
+        seen: { ...s.seen, ...Object.fromEntries(review.map((r) => ['in:' + r.id, 1])) },
+        settings: { ...s.settings, lastSync: Date.now(), lastInboxTs },
+      }))
+      return { added, review: review.length }
     },
   }
 

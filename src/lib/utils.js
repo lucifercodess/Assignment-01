@@ -18,14 +18,25 @@ export function dayLabel(d) {
   if (k === dayKey(Date.now() - DAY)) return 'Yesterday'
   return new Date(d).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })
 }
+export function ago(ts) {
+  if (!ts) return 'never'
+  const m = Math.round((Date.now() - ts) / 6e4)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m} min ago`
+  const h = Math.round(m / 60)
+  if (h < 24) return `${h}h ago`
+  return `${Math.round(h / 24)}d ago`
+}
 export const timeLabel = (d) => new Date(d).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })
 
 /** All the derived numbers the dashboard needs. */
-export function tripStats(trip, expenses) {
+export function tripStats(trip, expenses, countCredits = false) {
   const list = expenses.filter((e) => e.tripId === trip.id)
   const spends = list.filter((e) => e.type !== 'credit')
   const credits = list.filter((e) => e.type === 'credit')
-  const spent = spends.reduce((a, e) => a + e.amount, 0) - credits.reduce((a, e) => a + e.amount, 0)
+  const gross = spends.reduce((a, e) => a + e.amount, 0)
+  const received = credits.reduce((a, e) => a + e.amount, 0)
+  const spent = countCredits ? gross - received : gross
 
   const start = startOfDay(trip.start + 'T00:00')
   const end = startOfDay(trip.end + 'T00:00')
@@ -58,7 +69,7 @@ export function tripStats(trip, expenses) {
     days.push({ key: dayKey(d), date: d, total: byDay[dayKey(d)] || 0, future: d > today })
   }
 
-  return { list, spent, budget, totalDays, dayNum, daysLeft, notStarted, over, todaySpent, avgPerDay, projected, dailyBudget, safeToday, byCat, days, count: spends.length }
+  return { list, spent, gross, received, countCredits, budget, totalDays, dayNum, daysLeft, notStarted, over, todaySpent, avgPerDay, projected, dailyBudget, safeToday, byCat, days, count: spends.length }
 }
 
 /** Short, human, actionable insights. */

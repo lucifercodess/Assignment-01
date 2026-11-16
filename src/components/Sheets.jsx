@@ -40,7 +40,8 @@ function AmountInput({ value, onChange, autoFocus }) {
 }
 
 /* ---------------- Manual add / edit ---------------- */
-export function ExpenseSheet({ open, onClose, learned, expense, onSave, onDelete }) {
+export function ExpenseSheet({ open, onClose, learned, expense, draft, onSave, onDelete }) {
+  const [type, setType] = useState('debit')
   const [amount, setAmount] = useState('')
   const [merchant, setMerchant] = useState('')
   const [category, setCategory] = useState('food')
@@ -50,13 +51,15 @@ export function ExpenseSheet({ open, onClose, learned, expense, onSave, onDelete
 
   useEffect(() => {
     if (!open) return
-    setAmount(expense ? String(expense.amount) : '')
-    setMerchant(expense?.merchant || '')
-    setCategory(expense?.category || 'food')
+    const src = expense || draft
+    setAmount(src?.amount ? String(src.amount) : '')
+    setMerchant(src?.merchant || '')
+    setCategory(src?.category || 'food')
     setTouchedCat(!!expense)
-    setNote(expense?.note || '')
-    setDate(dayKey(expense?.date || Date.now()))
-  }, [open, expense])
+    setNote(src?.note || '')
+    setDate(dayKey(src?.date || Date.now()))
+    setType(src?.type || 'debit')
+  }, [open, expense, draft])
 
   // smart: guess category as you type
   useEffect(() => {
@@ -72,21 +75,34 @@ export function ExpenseSheet({ open, onClose, learned, expense, onSave, onDelete
     const keepTime = expense ? new Date(expense.date) : new Date()
     const d = new Date(date + 'T00:00')
     d.setHours(keepTime.getHours(), keepTime.getMinutes())
-    onSave({ amount: amt, merchant: merchant.trim() || catById[category].label, category, note: note.trim(), date: d.toISOString() })
+    onSave({ amount: amt, type, merchant: merchant.trim() || (type === 'credit' ? 'Money received' : catById[category].label), category: type === 'credit' ? 'other' : category, note: note.trim(), date: d.toISOString() })
     haptic(15)
     onClose()
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title={expense ? 'Edit expense' : 'Add expense'}>
-      <AmountInput value={amount} onChange={setAmount} autoFocus={!expense} />
+    <Sheet open={open} onClose={onClose} title={expense ? 'Edit entry' : draft ? 'Review & add' : 'Add entry'}>
+      <div className="mx-auto mt-1 grid w-60 grid-cols-2 rounded-full bg-sunken p-1 text-sm font-semibold">
+        {[['debit', 'Spent'], ['credit', 'Received']].map(([v, l]) => (
+          <button key={v} type="button" onClick={() => setType(v)} className={`rounded-full py-1.5 transition ${type === v ? (v === 'credit' ? 'bg-surface text-good shadow' : 'bg-surface text-ink shadow') : 'text-muted'}`}>{l}</button>
+        ))}
+      </div>
+      <AmountInput value={amount} onChange={setAmount} autoFocus={!expense && !draft} />
       <div className="space-y-4">
-        <Field label="Where / what">
-          <input className={inputCls} placeholder="e.g. Beach shack lunch" value={merchant} onChange={(e) => setMerchant(e.target.value)} />
+        {draft?.raw && (
+          <div className="rounded-2xl bg-sunken p-3 text-xs text-muted">
+            <p className="mb-1 font-semibold text-ink">From your bank</p>
+            <p className="whitespace-pre-wrap break-words">{draft.raw}</p>
+          </div>
+        )}
+        <Field label={type === 'credit' ? 'From whom / why' : 'Where / what'}>
+          <input className={inputCls} placeholder={type === 'credit' ? 'e.g. Rahul paid back for hotel' : 'e.g. Beach shack lunch'} value={merchant} onChange={(e) => setMerchant(e.target.value)} />
         </Field>
-        <Field label="Category">
-          <CategoryPicker value={category} onChange={(c) => { setTouchedCat(true); setCategory(c) }} />
-        </Field>
+        {type === 'debit' && (
+          <Field label="Category">
+            <CategoryPicker value={category} onChange={(c) => { setTouchedCat(true); setCategory(c) }} />
+          </Field>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Date">
             <input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} />
@@ -95,14 +111,14 @@ export function ExpenseSheet({ open, onClose, learned, expense, onSave, onDelete
             <input className={inputCls} placeholder="optional" value={note} onChange={(e) => setNote(e.target.value)} />
           </Field>
         </div>
-        {expense?.raw && (
+        {expense?.raw && !draft && (
           <details className="rounded-2xl bg-sunken p-3 text-xs text-muted">
             <summary className="cursor-pointer font-medium">Original bank message</summary>
             <p className="mt-2 whitespace-pre-wrap break-words">{expense.raw}</p>
           </details>
         )}
         {expense?.ref && <p className="text-xs text-muted">UPI ref: <span className="num">{expense.ref}</span>{expense.verified && ' · ✓ confirmed by bank SMS'}</p>}
-        <Btn className="w-full" onClick={save} disabled={!parseFloat(amount)}>{expense ? 'Save changes' : 'Add expense'}</Btn>
+        <Btn className="w-full" onClick={save} disabled={!parseFloat(amount)}>{expense ? 'Save changes' : type === 'credit' ? 'Add money received' : 'Add expense'}</Btn>
         {expense && <Btn variant="danger" className="w-full" onClick={() => { onDelete(expense.id); onClose() }}>Delete</Btn>}
       </div>
     </Sheet>
@@ -224,10 +240,10 @@ export function PaySheet({ open, onClose, learned, onPay, initialQr }) {
 }
 
 /* ---------------- Paste / share bank SMS ---------------- */
-export function PasteSheet({ open, onClose, onImport, initialText, includeCredits }) {
+export function PasteSheet({ open, onClose, onImport, initialText }) {
   const [text, setText] = useState('')
   useEffect(() => { if (open) setText(initialText || '') }, [open, initialText])
-  const parsed = parseMany(text).filter((p) => includeCredits || p.type !== 'credit')
+  const parsed = parseMany(text)
 
   const pasteClip = async () => {
     try { setText(await navigator.clipboard.readText()) } catch { /* ignore */ }
@@ -262,7 +278,7 @@ export function PasteSheet({ open, onClose, onImport, initialText, includeCredit
       )}
       {text && !parsed.length && <p className="mt-4 text-sm text-warn">Couldn’t find a completed payment in that text.</p>}
       <Btn className="mt-4 w-full" disabled={!parsed.length} onClick={() => { onImport(parsed); onClose() }}>
-        Add {parsed.length || ''} expense{parsed.length === 1 ? '' : 's'}
+        Add {parsed.length || ''} {parsed.length === 1 ? 'entry' : 'entries'}
       </Btn>
     </Sheet>
   )
@@ -320,5 +336,39 @@ export function TripForm({ trip, onSave, submitLabel = 'Start trip' }) {
       </div>
       <Btn className="w-full" disabled={!ok}>{submitLabel}</Btn>
     </form>
+  )
+}
+
+/* ---------------- SMS that need a human look ---------------- */
+export function ReviewSheet({ open, onClose, items, onAdd, onDismiss }) {
+  return (
+    <Sheet open={open} onClose={onClose} title="Needs your review">
+      <p className="mb-4 text-sm text-muted">These bank messages mention money but couldn’t be read automatically. Nothing is skipped silently — check each one.</p>
+      <ul className="space-y-3">
+        {items.map((r) => (
+          <li key={r.id} className="rounded-2xl bg-sunken p-4 animate-pop">
+            <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+              <span className="font-semibold text-warn">{r.reason}</span>
+              <span className="shrink-0 text-muted">{dayLabel(r.ts)} · {timeLabel(r.ts)}</span>
+            </div>
+            <p className="whitespace-pre-wrap break-words text-sm">{r.text}</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {/lite/i.test(r.reason) ? (
+                <>
+                  <Btn variant="soft" className="h-10 text-sm" onClick={() => onAdd(r)}>Count as spent</Btn>
+                  <Btn className="h-10 text-sm" onClick={() => onDismiss(r.id)}>Ignore top-up</Btn>
+                </>
+              ) : (
+                <>
+                  <Btn variant="soft" className="h-10 text-sm" onClick={() => onDismiss(r.id)}>Not an expense</Btn>
+                  <Btn className="h-10 text-sm" onClick={() => onAdd(r)}>Add{r.amount ? ` ${money(r.amount, true)}` : ''}</Btn>
+                </>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {!items.length && <p className="py-10 text-center text-muted">All clear ✓</p>}
+    </Sheet>
   )
 }

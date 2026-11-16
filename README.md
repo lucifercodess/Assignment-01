@@ -8,6 +8,13 @@ An installable phone app that tracks what you spend on a trip. Expenses get in t
 
 Smart features: it guesses the category (Food, Transport, Stay, Fuel and so on) and learns from your corrections. It shows how much is "safe to spend today", whether you're on pace for your budget, daily and category charts, and insights. It skips duplicate payments (by UPI reference), ignores OTP and failed-payment SMS, works offline and exports to CSV.
 
+## So nothing gets missed
+
+- **Credits and debits** are both recorded. Spending counts toward your budget. Money received (refunds, friends paying you back) shows in green as **+₹** and can optionally be subtracted from the total (Settings).
+- **Needs review.** Any forwarded SMS that mentions money but can't be read automatically appears on the Home screen for you to add or dismiss. Nothing is dropped silently. OTPs, promos and failed or declined payments are ignored.
+- **UPI Lite** payments send no bank SMS, so turn UPI Lite off for the trip. Lite top-ups go to review instead of being counted as spending.
+- Set SMS Forwarder's battery setting to **Unrestricted**. The Home screen shows "last SMS received" so you can see forwarding is working.
+
 ## Deploy (Vercel, free)
 
 1. Import this repo in Vercel. The framework is detected as **Vite**, so keep the defaults.

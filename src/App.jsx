@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from './lib/store'
 import { tripStats, haptic } from './lib/utils'
-import { parseUpiQr } from './lib/parser'
+import { parseUpiQr, parseMessage } from './lib/parser'
 import { Home, Activity, Settings } from './components/Screens'
-import { ExpenseSheet, PaySheet, PasteSheet, ConfirmSheet, TripForm } from './components/Sheets'
+import { ExpenseSheet, PaySheet, PasteSheet, ConfirmSheet, TripForm, ReviewSheet } from './components/Sheets'
 import { Sheet, Toast } from './components/ui'
 
 export default function App() {
@@ -11,6 +11,7 @@ export default function App() {
   const [tab, setTab] = useState('home')
   const [sheet, setSheet] = useState(null) // 'menu' | 'add' | 'pay' | 'paste' | 'trips' | 'newtrip'
   const [editing, setEditing] = useState(null)
+  const [draft, setDraft] = useState(null)
   const [shared, setShared] = useState({ text: '', qr: null })
   const [filter, setFilter] = useState(null)
   const [toastMsg, setToastMsg] = useState('')
@@ -24,14 +25,18 @@ export default function App() {
   }, [])
 
   const trip = state.trips.find((t) => t.id === state.activeTripId)
-  const stats = useMemo(() => trip && tripStats(trip, state.expenses), [trip, state.expenses])
+  const stats = useMemo(() => trip && tripStats(trip, state.expenses, state.settings.includeCredits), [trip, state.expenses, state.settings.includeCredits])
+  const review = state.review.filter((r) => !trip || r.tripId === trip.id)
 
   const sync = useCallback(async (quiet) => {
     if (!state.settings.syncKey) return
     setSyncing(true)
     try {
-      const { added } = await actions.sync()
-      if (added) { haptic(20); toast(`⚡ ${added} new payment${added > 1 ? 's' : ''} added`) }
+      const { added, review: rv } = await actions.sync()
+      if (added || rv) {
+        haptic(20)
+        toast([added && `⚡ ${added} new payment${added > 1 ? 's' : ''} added`, rv && `${rv} need${rv > 1 ? '' : 's'} review`].filter(Boolean).join(' · '))
+      }
       else if (!quiet) toast('Up to date')
     } catch (e) { if (!quiet) toast(e.message) }
     setSyncing(false)
@@ -76,7 +81,12 @@ export default function App() {
   }
 
   const openEdit = (e) => { setEditing(e); setSheet('add') }
-  const closeSheet = () => { setSheet(null); setEditing(null); setShared({ text: '', qr: null }) }
+  const closeSheet = () => { setSheet(null); setEditing(null); setDraft(null); setShared({ text: '', qr: null }) }
+  const reviewAdd = (r) => {
+    const p = parseMessage(r.text, r.ts)
+    setDraft({ amount: r.amount, raw: r.text, date: new Date(r.ts).toISOString(), reviewId: r.id, type: p?.type || (/credited|received|refund/i.test(r.text) ? 'credit' : 'debit'), merchant: p?.merchant && p.merchant !== 'Unknown' ? p.merchant : '' })
+    setSheet('add')
+  }
 
   const onPay = (p) => {
     actions.setPending({ ...p, at: Date.now() })
@@ -104,6 +114,7 @@ export default function App() {
             onPickCat={(c) => { setFilter(c); setTab('activity') }}
             syncing={syncing} onSync={() => sync(false)}
             autoOn={!!state.settings.syncKey} onSetupAuto={() => setTab('settings')}
+            lastSms={state.settings.lastInboxTs} reviewCount={review.length} onReview={() => setSheet('review')}
           />
         )}
         {tab === 'activity' && <Activity stats={stats} onEdit={openEdit} filter={filter} setFilter={setFilter} />}
@@ -136,14 +147,24 @@ export default function App() {
       </Sheet>
 
       <ExpenseSheet
-        open={sheet === 'add'} onClose={closeSheet} learned={state.learned} expense={editing}
-        onSave={(e) => (editing ? actions.updateExpense(editing.id, e) : actions.addExpense(e))}
+        open={sheet === 'add'} onClose={() => (draft ? setSheet('review') : closeSheet())} learned={state.learned} expense={editing} draft={draft}
+        onSave={(e) => {
+          if (editing) return actions.updateExpense(editing.id, e)
+          if (draft) {
+            actions.addExpense({ ...e, raw: draft.raw, source: 'sms' })
+            actions.dismissReview(draft.reviewId)
+            setDraft(null)
+            setTimeout(() => setSheet(review.length > 1 ? 'review' : null), 0)
+            return
+          }
+          actions.addExpense(e)
+        }}
         onDelete={(id) => { actions.deleteExpense(id); toast('Deleted') }}
       />
       <PaySheet open={sheet === 'pay'} onClose={closeSheet} learned={state.learned} onPay={onPay} initialQr={shared.qr} />
       <PasteSheet
-        open={sheet === 'paste'} onClose={closeSheet} initialText={shared.text} includeCredits={state.settings.includeCredits}
-        onImport={(list) => { const n = actions.importParsed(list, 'sms'); toast(n ? `Added ${n} expense${n > 1 ? 's' : ''}` : 'Already added — no duplicates') }}
+        open={sheet === 'paste'} onClose={closeSheet} initialText={shared.text}
+        onImport={(list) => { const n = actions.importParsed(list, 'sms'); toast(n ? `Added ${n} entr${n > 1 ? 'ies' : 'y'}` : 'Already added — no duplicates') }}
       />
       <ConfirmSheet
         pending={sheet ? null : state.pending}
@@ -154,6 +175,8 @@ export default function App() {
         }}
         onCancel={() => actions.setPending(null)}
       />
+
+      <ReviewSheet open={sheet === 'review'} onClose={closeSheet} items={review} onAdd={reviewAdd} onDismiss={actions.dismissReview} />
 
       {/* Trip switcher */}
       <Sheet open={sheet === 'trips'} onClose={closeSheet} title="Your trips">

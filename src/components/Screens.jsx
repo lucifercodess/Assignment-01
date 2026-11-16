@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { CATEGORIES, catById } from '../lib/categorize'
-import { money, dayKey, dayLabel, timeLabel, insights, toCSV, download } from '../lib/utils'
+import { money, dayKey, dayLabel, timeLabel, insights, toCSV, download, ago } from '../lib/utils'
 import { DailyChart, CategoryBreakdown } from './Charts'
 import { CatIcon, Btn, Field, inputCls } from './ui'
 import { TripForm } from './Sheets'
@@ -14,7 +14,7 @@ export function ExpenseRow({ e, onClick }) {
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{e.merchant}</div>
         <div className="truncate text-xs text-muted">
-          {catById[e.category]?.label} · {timeLabel(e.date)}
+          {e.type === 'credit' ? 'Received' : catById[e.category]?.label} · {timeLabel(e.date)}
           {SOURCE_BADGE[e.source] && <span className="ml-1.5 rounded-md bg-sunken px-1.5 py-0.5 text-[10px] font-semibold">{SOURCE_BADGE[e.source]}</span>}
           {e.note && ` · ${e.note}`}
         </div>
@@ -39,7 +39,7 @@ function Card({ children, className = '', title, action }) {
 }
 
 /* ---------------- Home ---------------- */
-export function Home({ trip, stats, onEdit, onSeeAll, onPickCat, syncing, onSync, autoOn, onSetupAuto }) {
+export function Home({ trip, stats, onEdit, onSeeAll, onPickCat, syncing, onSync, autoOn, onSetupAuto, lastSms, reviewCount, onReview }) {
   const pct = stats.budget ? Math.min(1, stats.spent / stats.budget) : 0
   const tips = insights(stats)
   const recent = [...stats.list].sort((a, b) => +new Date(b.date) - +new Date(a.date)).slice(0, 6)
@@ -56,6 +56,12 @@ export function Home({ trip, stats, onEdit, onSeeAll, onPickCat, syncing, onSync
           </div>
           <div className="num mt-1 text-4xl font-bold tracking-tight">{money(stats.spent)}</div>
           <div className="text-sm text-white/80">{stats.budget ? `spent of ${money(stats.budget)}` : `spent · ${stats.count} payments`}</div>
+          {stats.received > 0 && (
+            <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-xs">
+              <span className="num font-semibold">+{money(stats.received)}</span> received
+              <span className="text-white/70">· {stats.countCredits ? 'subtracted' : `net ${money(stats.gross - stats.received)}`}</span>
+            </div>
+          )}
           {stats.budget > 0 && (
             <>
               <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-white/20">
@@ -80,7 +86,7 @@ export function Home({ trip, stats, onEdit, onSeeAll, onPickCat, syncing, onSync
       {autoOn ? (
         <button onClick={onSync} className="flex w-full items-center gap-2 rounded-2xl bg-surface px-4 py-3 text-left text-sm">
           <span className="relative flex h-2.5 w-2.5"><span className={`absolute inline-flex h-full w-full rounded-full bg-good ${syncing ? 'animate-ping' : ''}`} /><span className="relative h-2.5 w-2.5 rounded-full bg-good" /></span>
-          <span className="flex-1">Auto-capture on {syncing ? '· checking…' : ''}</span>
+          <span className="flex-1">Auto-capture on <span className="text-muted">· {syncing ? 'checking…' : `last SMS ${ago(lastSms)}`}</span></span>
           <span className="text-accent">Refresh</span>
         </button>
       ) : (
@@ -88,6 +94,14 @@ export function Home({ trip, stats, onEdit, onSeeAll, onPickCat, syncing, onSync
           <span className="text-2xl">⚡</span>
           <span className="flex-1 text-sm"><b>Turn on auto-capture</b><br /><span className="text-muted">Every bank SMS becomes an expense — no typing.</span></span>
           <span className="text-accent">›</span>
+        </button>
+      )}
+
+      {reviewCount > 0 && (
+        <button onClick={onReview} className="flex w-full items-center gap-3 rounded-2xl bg-warn/10 px-4 py-3 text-left">
+          <span className="text-2xl">🔎</span>
+          <span className="flex-1 text-sm"><b>{reviewCount} bank message{reviewCount > 1 ? 's' : ''} need{reviewCount > 1 ? '' : 's'} a look</b><br /><span className="text-muted">Couldn’t read automatically: tap to add or dismiss.</span></span>
+          <span className="text-warn">›</span>
         </button>
       )}
 
@@ -133,7 +147,7 @@ export function Activity({ stats, onEdit, filter, setFilter }) {
   const groups = useMemo(() => {
     const ql = q.toLowerCase()
     const list = stats.list
-      .filter((e) => !filter || e.category === filter)
+      .filter((e) => !filter || (filter === 'received' ? e.type === 'credit' : e.category === filter && e.type !== 'credit'))
       .filter((e) => !ql || `${e.merchant} ${e.note || ''} ${e.vpa || ''} ${e.amount}`.toLowerCase().includes(ql))
       .sort((a, b) => +new Date(b.date) - +new Date(a.date))
     const g = []
@@ -144,25 +158,27 @@ export function Activity({ stats, onEdit, filter, setFilter }) {
     }
     return g
   }, [stats.list, q, filter])
-  const total = groups.reduce((a, g) => a + g.items.reduce((b, e) => b + (e.type === 'credit' ? -e.amount : e.amount), 0), 0)
+  const net = (items) => items.reduce((b, e) => b + (e.type === 'credit' ? (stats.countCredits ? -e.amount : 0) : e.amount), 0)
+  const total = groups.reduce((a, g) => a + net(g.items), 0)
 
   return (
     <div className="space-y-3">
       <input className={inputCls + ' bg-surface'} placeholder="🔍  Search merchant, note, amount" value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
         <button onClick={() => setFilter(null)} className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium ${!filter ? 'bg-ink text-surface' : 'bg-surface'}`}>All</button>
+        <button onClick={() => setFilter(filter === 'received' ? null : 'received')} className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium ${filter === 'received' ? 'bg-ink text-surface' : 'bg-surface text-good'}`}>＋ Received</button>
         {CATEGORIES.map((c) => (
           <button key={c.id} onClick={() => setFilter(filter === c.id ? null : c.id)} className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium ${filter === c.id ? 'bg-ink text-surface' : 'bg-surface'}`}>
             {c.emoji} {c.label}
           </button>
         ))}
       </div>
-      {(q || filter) && <p className="px-1 text-sm text-muted">Total: <b className="num text-ink">{money(total)}</b></p>}
+      {(q || filter) && <p className="px-1 text-sm text-muted">Total: <b className="num text-ink">{money(filter === 'received' ? groups.reduce((a, g) => a + g.items.reduce((b, e) => b + e.amount, 0), 0) : total)}</b></p>}
       {groups.map((g) => (
         <section key={g.k} className="rounded-3xl bg-surface p-3">
           <div className="flex justify-between px-2 pb-1 text-sm">
             <span className="font-semibold">{dayLabel(g.date)}</span>
-            <span className="num text-muted">{money(g.items.reduce((a, e) => a + (e.type === 'credit' ? -e.amount : e.amount), 0))}</span>
+            <span className="num text-muted">{money(net(g.items))}</span>
           </div>
           {g.items.map((e) => <ExpenseRow key={e.id} e={e} onClick={() => onEdit(e)} />)}
         </section>
@@ -224,8 +240,17 @@ export function Settings({ state, actions, trip, stats, toast, onSync }) {
           <li className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-accent text-xs font-bold text-white">3</span>
             <span>Pay anywhere with UPI. Open this app — new payments are added and categorised. Non-payment SMS (OTPs etc.) are ignored.</span></li>
         </ol>
+        <div className="mt-5 rounded-2xl bg-sunken p-4 text-sm">
+          <p className="mb-2 font-semibold">So nothing gets missed</p>
+          <ul className="space-y-1.5 text-muted">
+            <li>🔋 Settings → Apps → SMS Forwarder → Battery → <b className="text-ink">Unrestricted</b></li>
+            <li>💳 Turn off <b className="text-ink">UPI Lite</b> in GPay/PhonePe: Lite payments send no bank SMS</li>
+            <li>📶 No data when an SMS arrived? Use <b className="text-ink">＋ → Import bank SMS</b>. Duplicates are skipped</li>
+            <li>🔎 Messages the app can’t read appear under <b className="text-ink">Needs review</b> on Home</li>
+          </ul>
+        </div>
         <label className="mt-5 flex items-center justify-between gap-3 text-sm">
-          <span>Count refunds / money received<br /><span className="text-xs text-muted">Credits reduce your trip total</span></span>
+          <span>Subtract money received from total<br /><span className="text-xs text-muted">Refunds and friends paying you back are always recorded (in green). Turn this on to reduce your trip total by them.</span></span>
           <input type="checkbox" className="h-5 w-5 accent-[var(--accent)]" checked={state.settings.includeCredits} onChange={(e) => actions.setSettings({ includeCredits: e.target.checked })} />
         </label>
       </section>

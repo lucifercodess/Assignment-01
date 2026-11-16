@@ -12,7 +12,7 @@ const UPI_PATH_RE = /UPI\/(?:P2[AM]\/|CR\/|DR\/)?([0-9]{9,14})\/([^/\n.]+)/i
 
 const DEBIT_WORDS = /\b(debited|debit|sent|paid|spent|withdrawn|deducted|purchase|txn of|payment of|transferred)\b/i
 const CREDIT_WORDS = /\b(credited|received|refund(?:ed)?|deposited|cashback|reversed)\b/i
-const NOISE = /\b(otp|one time password|will be debited|is due|due on|request(?:ed)? (?:money|payment)|collect request|emi of .* due|failed|declined|unsuccessful)\b/i
+const NOISE = /\b(offer|valid till|apply now|pre-approved|get (?:flat )?(?:cashback|rs|inr)|(?:upto|up to) (?:rs|inr|₹)|win|click|otp|one time password|will be debited|is due|due on|request(?:ed)? (?:money|payment)|collect request|emi of .* due|failed|declined|unsuccessful)\b/i
 
 const MERCHANT_PATTERNS = [
   /;\s*(.+?)\s+credited\b/i,
@@ -74,6 +74,7 @@ export function parseMessage(text, fallbackDate) {
   if (!text || typeof text !== 'string') return null
   const t = text.replace(/\s+/g, ' ').trim()
   if (NOISE.test(t)) return null
+  if (UPI_LITE.test(t) && /\b(top.?up|load|add(?:ed)?|transfer(?:red)?)\b/i.test(t)) return null
 
   let am = t.match(AMOUNT_RE) || t.match(AMOUNT_ALT_RE)
   if (!am) return null
@@ -83,6 +84,7 @@ export function parseMessage(text, fallbackDate) {
   const isDebit = DEBIT_WORDS.test(t)
   const isCredit = CREDIT_WORDS.test(t)
   if (!isDebit && !isCredit) return null
+  if (!MONEYISH.test(t) && !VPA_RE.test(t)) return null // must reference an account/UPI/card
   // "debited ... credited to X" is still a debit (money left your account)
   let type = isDebit ? 'debit' : 'credit'
   if (isDebit && isCredit) {
@@ -121,6 +123,29 @@ export function parseMessage(text, fallbackDate) {
     method: isUpi ? 'UPI' : /card/i.test(t) ? 'Card' : 'Bank',
     raw: text.trim(),
   }
+}
+
+const MONEYISH = /\b(a\/?c|acct|account|upi|card|bank|debit|credit|txn|transaction|wallet|paid|sent|spent|vpa)\b/i
+const SKIP = /\b(otp|one time password|will be debited|is due|due on|due date|collect request|request(?:ed)? (?:money|payment)|offer|cashback upto|win|loan|pre-approved|apply now|failed|declined|unsuccessful)\b/i
+const UPI_LITE = /upi\s*lite/i
+
+/**
+ * For a message parseMessage() could not use: should a human look at it?
+ * Returns a short reason, or null if it's clearly not a transaction (OTP, promo, failed).
+ */
+export function reviewReason(text) {
+  if (!text) return null
+  const t = text.replace(/\s+/g, ' ')
+  if (UPI_LITE.test(t) && AMOUNT_RE.test(t)) return 'UPI Lite top-up: money moved to your Lite wallet, not spent yet'
+  if (SKIP.test(t)) return null
+  if ((AMOUNT_RE.test(t) || AMOUNT_ALT_RE.test(t)) && MONEYISH.test(t)) return 'Unrecognised bank message format'
+  return null
+}
+
+/** Best-effort amount from any text (used to prefill review items). */
+export function guessAmount(text) {
+  const m = String(text || '').match(AMOUNT_RE) || String(text || '').match(AMOUNT_ALT_RE)
+  return m ? parseFloat(m[1].replace(/,/g, '')) : 0
 }
 
 /** Parse a blob that may contain several pasted messages. */
