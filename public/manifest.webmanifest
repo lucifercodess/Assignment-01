@@ -1,0 +1,27 @@
+{
+  "name": "Tripwise — Trip Expenses",
+  "short_name": "Tripwise",
+  "description": "Track trip expenses automatically from UPI payments and bank SMS.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f4f1",
+  "theme_color": "#4f46e5",
+  "categories": ["finance", "travel"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Pay with UPI", "url": "/?action=pay", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Add expense", "url": "/?action=add", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+  ],
+  "share_target": {
+    "action": "/",
+    "method": "GET",
+    "params": { "title": "title", "text": "text", "url": "url" }
+  }
+}

@@ -1,8 +1,39 @@
-# React + Vite
+# Tripwise: trip expense tracker (PWA)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+An installable phone app that tracks what you spend on a trip. Expenses get in three ways:
 
-Currently, two official plugins are available:
+1. **Automatically from bank SMS.** Your Android phone forwards each bank "debited" SMS to this app's private inbox (`/api/ingest`). The app reads it and adds the expense with a category, including payments you make directly in GPay, PhonePe or Paytm.
+2. **Pay with UPI from inside the app.** Scan a merchant's QR code or type a UPI ID. Your UPI app opens with the payee and amount filled in, and the payment is logged when you come back.
+3. **By hand, or by pasting or sharing bank SMS.** Use this for cash or card payments.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+Smart features: it guesses the category (Food, Transport, Stay, Fuel and so on) and learns from your corrections. It shows how much is "safe to spend today", whether you're on pace for your budget, daily and category charts, and insights. It skips duplicate payments (by UPI reference), ignores OTP and failed-payment SMS, works offline and exports to CSV.
+
+## Deploy (Vercel, free)
+
+1. Import this repo in Vercel. The framework is detected as **Vite**, so keep the defaults.
+2. **Storage → Upstash for Redis → Create** (free tier) and connect it to the project. This sets `KV_REST_API_URL` and `KV_REST_API_TOKEN`.
+3. **Settings → Environment Variables**: add `INGEST_KEY` = any long random secret.
+4. Redeploy. Open the URL in Chrome on your phone, then **⋮ → Install app**.
+
+## Turn on auto-capture (Android / Pixel)
+
+1. In the app: **Settings → Secret key** → enter your `INGEST_KEY` → **Connect**.
+2. Install **SMS Forwarder** (bogkonstantin, Play Store / F-Droid, open source).
+3. Add a forwarding rule. Use sender `*` (or your bank's sender ID). Set the webhook URL to the one shown in the app's Settings:
+   `https://YOUR-APP.vercel.app/api/ingest?key=YOUR_INGEST_KEY`
+   Keep the default JSON template (`{"from":"%from%","text":"%text%",...}`).
+4. Done. Each payment SMS becomes an expense the next time you open the app.
+
+The webhook accepts JSON `{ "text": "..." }`, plain text or form data, so Tasker, MacroDroid or an iOS Shortcut also work.
+
+## Privacy
+
+Expenses are stored only in your phone's browser storage. The server inbox holds the last 500 forwarded SMS in your own Upstash database, protected by your secret key. UPI PINs are only ever entered in your UPI app.
+
+## Develop
+
+```
+npm install
+npm run dev     # UI only; /api needs `vercel dev`
+npm run build
+```
