@@ -1,28 +1,15 @@
 // Vercel serverless function: receives bank/UPI SMS from your phone's
 // SMS forwarder (POST) and hands them to the app (GET).
 //
-// Storage: Upstash Redis (free) — add it in Vercel → Storage → Upstash Redis.
-// Env vars (set automatically by the integration, any of these names works):
-//   KV_REST_API_URL / KV_REST_API_TOKEN   or   UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN
-// Plus one you choose yourself:
+// Storage: a PRIVATE Vercel Blob store (BLOB_READ_WRITE_TOKEN is set when the
+// store is connected to the project). Each SMS is one small JSON file under inbox/.
+// Env:
 //   INGEST_KEY  — a secret; the forwarder and the app must both send it.
 
-const LIST = 'tripwise:inbox'
-const MAX = 500
+import { put, list, get, del } from '@vercel/blob'
 
-async function redis(cmd) {
-  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL
-  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN
-  if (!url || !token) throw new Error('Storage not configured: add Upstash Redis to this Vercel project')
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(cmd),
-  })
-  const j = await r.json()
-  if (j.error) throw new Error(j.error)
-  return j.result
-}
+const PREFIX = 'inbox/'
+const KEEP_DAYS = 90
 
 function extractText(body) {
   if (!body) return ''
@@ -30,16 +17,23 @@ function extractText(body) {
     try { return extractText(JSON.parse(body)) } catch { return body }
   }
   // Accept the field names used by common SMS forwarder apps / Tasker / MacroDroid
-  const keys = ['text', 'message', 'msg', 'sms', 'body', 'content', 'smsBody', 'key']
+  const keys = ['text', 'message', 'msg', 'sms', 'body', 'content', 'smsBody']
   for (const k of keys) if (typeof body[k] === 'string' && body[k].trim()) return body[k]
   for (const v of Object.values(body)) if (typeof v === 'string' && /rs\.?|inr|₹|debited|credited/i.test(v)) return v
   return ''
 }
 
+async function readJSON(pathname) {
+  const r = await get(pathname, { access: 'private', useCache: false })
+  if (!r || r.statusCode !== 200) return null
+  const text = await new Response(r.stream).text()
+  try { return JSON.parse(text) } catch { return null }
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Ingest-Key, Authorization')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
   res.setHeader('Cache-Control', 'no-store')
   if (req.method === 'OPTIONS') return res.status(204).end()
 
@@ -53,17 +47,44 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       const text = extractText(req.body).trim()
       if (!text) return res.status(400).json({ error: 'No message text found in body' })
-      const sender = (req.body && (req.body.from || req.body.sender || req.body.address)) || ''
-      const item = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, ts: Date.now(), text: text.slice(0, 1000), sender: String(sender).slice(0, 40) }
-      await redis(['LPUSH', LIST, JSON.stringify(item)])
-      await redis(['LTRIM', LIST, 0, MAX - 1])
-      return res.status(200).json({ ok: true, id: item.id })
+      const sender = (req.body && typeof req.body === 'object' && (req.body.from || req.body.sender || req.body.address)) || ''
+      const ts = Date.now()
+      const id = `${ts}-${Math.random().toString(36).slice(2, 8)}`
+      const item = { id, ts, text: text.slice(0, 1000), sender: String(sender).slice(0, 40) }
+      await put(`${PREFIX}${id}.json`, JSON.stringify(item), {
+        access: 'private', contentType: 'application/json', addRandomSuffix: false,
+      })
+      return res.status(200).json({ ok: true, id })
     }
+
     if (req.method === 'GET') {
       const since = Number(req.query.since || 0)
-      const raw = (await redis(['LRANGE', LIST, 0, MAX - 1])) || []
-      const items = raw.map((s) => { try { return JSON.parse(s) } catch { return null } }).filter((x) => x && x.ts > since)
+      const all = []
+      let cursor
+      do {
+        const page = await list({ prefix: PREFIX, limit: 1000, cursor })
+        all.push(...page.blobs)
+        cursor = page.hasMore ? page.cursor : undefined
+      } while (cursor)
+
+      const tsOf = (b) => Number(b.pathname.slice(PREFIX.length).split('-')[0]) || 0
+      const fresh = all.filter((b) => tsOf(b) > since).sort((a, b) => tsOf(b) - tsOf(a)).slice(0, 300)
+      const items = (await Promise.all(fresh.map((b) => readJSON(b.pathname)))).filter(Boolean)
+
+      // housekeeping: drop messages older than KEEP_DAYS
+      const old = all.filter((b) => tsOf(b) < Date.now() - KEEP_DAYS * 864e5).map((b) => b.url)
+      if (old.length) await del(old).catch(() => {})
+
       return res.status(200).json({ items })
+    }
+    if (req.method === 'DELETE') {
+      // ?id=<id> removes one message; ?all=1 empties the inbox
+      const ids = req.query.all ? null : String(req.query.id || '').split(',').filter((x) => /^[\w-]+$/.test(x))
+      if (ids && !ids.length) return res.status(400).json({ error: 'Pass ?id= or ?all=1' })
+      const page = await list({ prefix: PREFIX, limit: 1000 })
+      const urls = page.blobs.filter((b) => !ids || ids.some((id) => b.pathname === `${PREFIX}${id}.json`)).map((b) => b.url)
+      if (urls.length) await del(urls)
+      return res.status(200).json({ ok: true, deleted: urls.length })
     }
     return res.status(405).json({ error: 'Method not allowed' })
   } catch (e) {

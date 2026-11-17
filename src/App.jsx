@@ -65,8 +65,11 @@ export default function App() {
     }
     const a = p.get('action')
     if (a === 'pay' || a === 'add' || a === 'paste') setSheet(a)
-    if (text || a) history.replaceState(null, '', '/')
-  }, [])
+    // one-tap setup link: /?key=SECRET saves the auto-capture key on this phone
+    const k = p.get('key')
+    if (k) { actions.setSettings({ syncKey: k, lastSync: 0 }); setTimeout(() => toast('Auto-capture connected'), 300) }
+    if (text || a || k) history.replaceState(null, '', '/')
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!trip) {
     return (

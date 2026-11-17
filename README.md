@@ -17,10 +17,13 @@ Smart features: it guesses the category (Food, Transport, Stay, Fuel and so on) 
 
 ## Deploy (Vercel, free)
 
-1. Import this repo in Vercel. The framework is detected as **Vite**, so keep the defaults.
-2. **Storage → Upstash for Redis → Create** (free tier) and connect it to the project. This sets `KV_REST_API_URL` and `KV_REST_API_TOKEN`.
+Live at **https://tripwise-azure.vercel.app**.
+
+To deploy your own copy:
+1. Import this repo in Vercel (framework: **Vite**).
+2. **Storage → Create → Blob**, set access to **Private**, and connect it to the project. This sets `BLOB_READ_WRITE_TOKEN`.
 3. **Settings → Environment Variables**: add `INGEST_KEY` = any long random secret.
-4. Redeploy. Open the URL in Chrome on your phone, then **⋮ → Install app**.
+4. Deploy. Open `https://YOUR-APP.vercel.app/?key=YOUR_INGEST_KEY` once on your phone (this saves the key), then use **⋮ → Install app**.
 
 ## Turn on auto-capture (Android / Pixel)
 
@@ -35,7 +38,7 @@ The webhook accepts JSON `{ "text": "..." }`, plain text or form data, so Tasker
 
 ## Privacy
 
-Expenses are stored only in your phone's browser storage. The server inbox holds the last 500 forwarded SMS in your own Upstash database, protected by your secret key. UPI PINs are only ever entered in your UPI app.
+Expenses are stored only in your phone's browser storage. The server inbox keeps forwarded SMS for 90 days in a private Vercel Blob store, protected by your secret key. UPI PINs are only ever entered in your UPI app.
 
 ## Develop
 
