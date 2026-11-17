@@ -78,15 +78,15 @@ export function insights(s) {
   if (!s.count) return out
   if (s.budget) {
     const pct = s.spent / s.budget
-    if (pct >= 1) out.push({ tone: 'bad', icon: '🚨', text: `Over budget by ${money(s.spent - s.budget)}` })
+    if (pct >= 1) out.push({ tone: 'bad', icon: '🚨', text: `You're over budget by ${money(s.spent - s.budget)}.` })
     else if (!s.notStarted && !s.over && s.projected > s.budget * 1.05)
-      out.push({ tone: 'warn', icon: '📈', text: `At this pace you'll spend ${money(s.projected)} — ${money(s.projected - s.budget)} over. Aim for ${money(s.safeToday + s.todaySpent)}/day.` })
+      out.push({ tone: 'warn', icon: '📈', text: `At this pace you'll spend ${money(s.projected)}, ${money(s.projected - s.budget)} over budget. Aim for ${money(s.safeToday + s.todaySpent)} a day.` })
     else if (!s.notStarted && !s.over && s.dayNum > 1)
-      out.push({ tone: 'good', icon: '✅', text: `On track — projected ${money(s.projected)} of ${money(s.budget)}.` })
+      out.push({ tone: 'good', icon: '✅', text: `On track: projected ${money(s.projected)} of ${money(s.budget)}.` })
   }
   if (s.byCat[0] && s.spent > 0) {
     const c = s.byCat[0]
-    out.push({ tone: 'info', icon: c.emoji, text: `${c.label} is ${Math.round((c.total / s.spent) * 100)}% of spending (${money(c.total)}).` })
+    out.push({ tone: 'info', text: `${c.label} is ${Math.round((c.total / s.spent) * 100)}% of spending (${money(c.total)}).` })
   }
   const past = s.days.filter((d) => !d.future && d.total > 0)
   if (past.length >= 2) {

@@ -1,141 +1,158 @@
 import { useMemo, useRef, useState } from 'react'
+import { Search, Zap, TriangleAlert, TrendingUp, Check, Sparkles, ChevronRight, Copy, Download, Upload, Trash2, RefreshCw } from 'lucide-react'
 import { CATEGORIES, catById } from '../lib/categorize'
 import { money, dayKey, dayLabel, timeLabel, insights, toCSV, download, ago } from '../lib/utils'
 import { DailyChart, CategoryBreakdown } from './Charts'
-import { CatIcon, Btn, Field, inputCls } from './ui'
+import { CatIcon, Btn, Field, inputCls, Row } from './ui'
 import { TripForm } from './Sheets'
 
-const SOURCE_BADGE = { auto: '⚡ Auto', upi: 'UPI', sms: 'SMS', manual: '' }
+const SOURCE_LABEL = { auto: 'Auto', upi: 'UPI', sms: 'SMS', manual: '' }
 
 export function ExpenseRow({ e, onClick }) {
+  const credit = e.type === 'credit'
   return (
-    <button onClick={onClick} className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-left active:bg-sunken">
-      <CatIcon id={e.category} />
+    <button onClick={onClick} className="flex w-full items-center gap-3.5 px-4 py-3 text-left active:bg-sunken">
+      <CatIcon id={e.category} credit={credit} />
       <div className="min-w-0 flex-1">
-        <div className="truncate font-medium">{e.merchant}</div>
-        <div className="truncate text-xs text-muted">
-          {e.type === 'credit' ? 'Received' : catById[e.category]?.label} · {timeLabel(e.date)}
-          {SOURCE_BADGE[e.source] && <span className="ml-1.5 rounded-md bg-sunken px-1.5 py-0.5 text-[10px] font-semibold">{SOURCE_BADGE[e.source]}</span>}
+        <div className="truncate text-[15px] font-medium">{e.merchant}</div>
+        <div className="truncate text-[12.5px] text-muted">
+          {credit ? 'Received' : catById[e.category]?.label} · {timeLabel(e.date)}
+          {SOURCE_LABEL[e.source] && ` · ${SOURCE_LABEL[e.source]}`}
           {e.note && ` · ${e.note}`}
         </div>
       </div>
-      <div className={`num shrink-0 font-semibold ${e.type === 'credit' ? 'text-good' : ''}`}>{e.type === 'credit' ? '+' : ''}{money(e.amount, true)}</div>
+      <div className={`num shrink-0 text-[15px] font-semibold ${credit ? 'text-good' : ''}`}>{credit ? '+' : ''}{money(e.amount, true)}</div>
     </button>
   )
 }
 
-function Card({ children, className = '', title, action }) {
+function Section({ title, action, children, flush }) {
   return (
-    <section className={`rounded-3xl bg-surface p-5 shadow-[0_1px_2px_rgba(0,0,0,.04)] ${className}`}>
-      {title && (
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="font-semibold">{title}</h3>
-          {action}
-        </div>
-      )}
-      {children}
+    <section>
+      <div className="mb-2.5 flex items-center justify-between px-1">
+        <h3 className="eyebrow">{title}</h3>
+        {action}
+      </div>
+      <div className={`overflow-hidden rounded-[22px] border border-line bg-surface ${flush ? '' : 'p-5'}`}>{children}</div>
     </section>
   )
 }
 
+function Stat({ label, value, tone }) {
+  return (
+    <div className="min-w-0 flex-1 px-3 first:pl-0 last:pr-0">
+      <div className="truncate text-[12.5px] text-muted">{label}</div>
+      <div className={`num truncate text-[19px] font-semibold tracking-tight ${tone === 'good' ? 'text-good' : tone === 'bad' ? 'text-bad' : ''}`}>{value}</div>
+    </div>
+  )
+}
+
+const TIP_ICON = { bad: TriangleAlert, warn: TrendingUp, good: Check, info: Sparkles }
+const TIP_COLOR = { bad: 'var(--bad)', warn: 'var(--warn)', good: 'var(--good)', info: 'var(--muted)' }
+
 /* ---------------- Home ---------------- */
 export function Home({ trip, stats, onEdit, onSeeAll, onPickCat, syncing, onSync, autoOn, onSetupAuto, lastSms, reviewCount, onReview }) {
   const pct = stats.budget ? Math.min(1, stats.spent / stats.budget) : 0
+  const pace = stats.notStarted ? 0 : stats.dayNum / stats.totalDays
   const tips = insights(stats)
-  const recent = [...stats.list].sort((a, b) => +new Date(b.date) - +new Date(a.date)).slice(0, 6)
+  const recent = [...stats.list].sort((a, b) => +new Date(b.date) - +new Date(a.date)).slice(0, 5)
   const remaining = stats.budget - stats.spent
+  const fill = pct >= 1 ? 'var(--bad)' : stats.budget && stats.projected > stats.budget * 1.05 ? 'var(--warn)' : 'var(--accent)'
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-7">
       {/* Hero */}
-      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#4f46e5] to-[#7c3aed] p-5 text-white shadow-lg">
-        <div className="absolute -right-8 -top-10 h-40 w-40 rounded-full bg-white/10" />
-        <div className="relative">
-          <div className="text-sm text-white/80">
-            {stats.notStarted ? `Starts ${dayLabel(trip.start + 'T00:00')}` : stats.over ? 'Trip complete' : `Day ${stats.dayNum} of ${stats.totalDays}`}
-          </div>
-          <div className="num mt-1 text-4xl font-bold tracking-tight">{money(stats.spent)}</div>
-          <div className="text-sm text-white/80">{stats.budget ? `spent of ${money(stats.budget)}` : `spent · ${stats.count} payments`}</div>
-          {stats.received > 0 && (
-            <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-xs">
-              <span className="num font-semibold">+{money(stats.received)}</span> received
-              <span className="text-white/70">· {stats.countCredits ? 'subtracted' : `net ${money(stats.gross - stats.received)}`}</span>
+      <section className="px-1 pt-2">
+        <div className="text-[13.5px] text-muted">
+          {stats.notStarted ? `Starts ${dayLabel(trip.start + 'T00:00')}` : stats.over ? 'Trip complete' : `Day ${stats.dayNum} of ${stats.totalDays}`} · spent so far
+        </div>
+        <div className="num display mt-2 text-[60px]">{money(stats.spent)}</div>
+        <div className="mt-2 text-[14.5px] text-muted">
+          {stats.budget ? <>of <span className="num text-ink">{money(stats.budget)}</span> budget</> : `${stats.count} payments`}
+        </div>
+
+        {stats.budget > 0 && (
+          <div className="relative mt-5">
+            <div className="h-[6px] overflow-hidden rounded-full bg-sunken">
+              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct * 100}%`, background: fill }} />
             </div>
-          )}
-          {stats.budget > 0 && (
+            {!stats.notStarted && !stats.over && (
+              <div className="absolute -top-[5px] h-4 w-[2px] rounded-full bg-ink" style={{ left: `calc(${pace * 100}% - 1px)` }} title="Where you'd be at an even pace" />
+            )}
+            <div className="mt-2 flex justify-between text-[12px] text-muted">
+              <span className="num">{Math.round(pct * 100)}% used</span>
+              {!stats.notStarted && !stats.over && <span className="num">Expected by today: {money(stats.budget * pace)}</span>}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-6 flex divide-x divide-line border-y border-line py-4">
+          {stats.budget > 0 ? (
             <>
-              <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-white/20">
-                <div className="h-full rounded-full bg-white transition-all" style={{ width: `${pct * 100}%` }} />
-              </div>
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <div className="rounded-2xl bg-white/15 p-3">
-                  <div className="text-xs text-white/80">{stats.over || stats.daysLeft === 0 ? 'Left over' : 'Safe to spend today'}</div>
-                  <div className="num text-xl font-semibold">{money(stats.over ? Math.max(0, remaining) : stats.safeToday)}</div>
-                </div>
-                <div className="rounded-2xl bg-white/15 p-3">
-                  <div className="text-xs text-white/80">{remaining >= 0 ? 'Remaining' : 'Over budget'}</div>
-                  <div className="num text-xl font-semibold">{money(Math.abs(remaining))}</div>
-                </div>
-              </div>
+              <Stat label={stats.over || stats.daysLeft === 0 ? 'Left over' : 'Safe today'} value={money(stats.over ? Math.max(0, remaining) : stats.safeToday)} />
+              <Stat label={remaining >= 0 ? 'Remaining' : 'Over'} value={money(Math.abs(remaining))} tone={remaining < 0 ? 'bad' : undefined} />
+            </>
+          ) : (
+            <>
+              <Stat label="Today" value={money(stats.todaySpent)} />
+              <Stat label="Per day" value={money(stats.avgPerDay)} />
             </>
           )}
+          <Stat label="Received" value={stats.received ? `+${money(stats.received)}` : '—'} tone={stats.received ? 'good' : undefined} />
         </div>
       </section>
 
-      {/* Auto-capture status */}
-      {autoOn ? (
-        <button onClick={onSync} className="flex w-full items-center gap-2 rounded-2xl bg-surface px-4 py-3 text-left text-sm">
-          <span className="relative flex h-2.5 w-2.5"><span className={`absolute inline-flex h-full w-full rounded-full bg-good ${syncing ? 'animate-ping' : ''}`} /><span className="relative h-2.5 w-2.5 rounded-full bg-good" /></span>
-          <span className="flex-1">Auto-capture on <span className="text-muted">· {syncing ? 'checking…' : `last SMS ${ago(lastSms)}`}</span></span>
-          <span className="text-accent">Refresh</span>
-        </button>
-      ) : (
-        <button onClick={onSetupAuto} className="flex w-full items-center gap-3 rounded-2xl border border-dashed border-accent/50 bg-accent/5 px-4 py-3 text-left">
-          <span className="text-2xl">⚡</span>
-          <span className="flex-1 text-sm"><b>Turn on auto-capture</b><br /><span className="text-muted">Every bank SMS becomes an expense — no typing.</span></span>
-          <span className="text-accent">›</span>
-        </button>
-      )}
+      {/* Status + alerts */}
+      <div className="space-y-2.5">
+        {reviewCount > 0 && (
+          <Row icon={TriangleAlert} tone="warn" onClick={onReview}
+            title={`${reviewCount} bank message${reviewCount > 1 ? 's' : ''} to review`}
+            sub="Couldn’t be read automatically"
+            right={<ChevronRight size={18} className="text-muted" />} />
+        )}
+        {autoOn ? (
+          <button onClick={onSync} className="flex w-full items-center gap-2.5 px-1 text-left text-[13px] text-muted">
+            <span className={`h-2 w-2 rounded-full bg-good ${syncing ? 'animate-pulse' : ''}`} />
+            <span className="flex-1">Auto-capture on · {syncing ? 'checking…' : `last SMS ${ago(lastSms)}`}</span>
+            <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
+          </button>
+        ) : (
+          <Row icon={Zap} tone="accent" onClick={onSetupAuto}
+            title="Turn on auto-capture"
+            sub="Bank SMS become expenses automatically"
+            right={<ChevronRight size={18} className="text-muted" />} />
+        )}
+      </div>
 
-      {reviewCount > 0 && (
-        <button onClick={onReview} className="flex w-full items-center gap-3 rounded-2xl bg-warn/10 px-4 py-3 text-left">
-          <span className="text-2xl">🔎</span>
-          <span className="flex-1 text-sm"><b>{reviewCount} bank message{reviewCount > 1 ? 's' : ''} need{reviewCount > 1 ? '' : 's'} a look</b><br /><span className="text-muted">Couldn’t read automatically: tap to add or dismiss.</span></span>
-          <span className="text-warn">›</span>
-        </button>
-      )}
-
-      {/* Insights */}
       {tips.length > 0 && (
-        <div className="no-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4">
-          {tips.map((t, i) => (
-            <div key={i} className="w-64 shrink-0 rounded-2xl bg-surface p-4 text-sm">
-              <div className="mb-1 flex items-center gap-2">
-                <span className="text-lg">{t.icon}</span>
-                <span className={`text-xs font-semibold uppercase tracking-wide ${t.tone === 'bad' ? 'text-bad' : t.tone === 'warn' ? 'text-warn' : t.tone === 'good' ? 'text-good' : 'text-muted'}`}>
-                  {t.tone === 'bad' ? 'Alert' : t.tone === 'warn' ? 'Heads up' : t.tone === 'good' ? 'Looking good' : 'Insight'}
-                </span>
-              </div>
-              {t.text}
-            </div>
-          ))}
-        </div>
+        <Section title="Insights">
+          <ul className="space-y-3.5">
+            {tips.map((t, i) => {
+              const I = TIP_ICON[t.tone]
+              return (
+                <li key={i} className="flex gap-3 text-[14.5px] leading-snug">
+                  <I size={17} strokeWidth={2} className="mt-0.5 shrink-0" style={{ color: TIP_COLOR[t.tone] }} />
+                  <span>{t.text}</span>
+                </li>
+              )
+            })}
+          </ul>
+        </Section>
       )}
 
-      {stats.count > 0 ? (
+      {stats.count > 0 || stats.received > 0 ? (
         <>
-          <Card title="Daily spending"><DailyChart days={stats.days} dailyBudget={stats.dailyBudget} /></Card>
-          <Card title="Where it went"><CategoryBreakdown byCat={stats.byCat} total={stats.byCat.reduce((a, c) => a + c.total, 0)} onPick={onPickCat} /></Card>
-          <Card title="Recent" action={<button onClick={onSeeAll} className="text-sm font-medium text-accent">See all</button>}>
-            <div className="-mx-2">{recent.map((e) => <ExpenseRow key={e.id} e={e} onClick={() => onEdit(e)} />)}</div>
-          </Card>
+          {stats.count > 0 && <Section title="Daily spending"><DailyChart days={stats.days} dailyBudget={stats.dailyBudget} /></Section>}
+          {stats.count > 0 && <Section title="By category"><CategoryBreakdown byCat={stats.byCat} total={stats.byCat.reduce((a, c) => a + c.total, 0)} onPick={onPickCat} /></Section>}
+          <Section title="Recent" flush action={<button onClick={onSeeAll} className="text-[13px] font-semibold text-accent">See all</button>}>
+            <div className="divide-y divide-line">{recent.map((e) => <ExpenseRow key={e.id} e={e} onClick={() => onEdit(e)} />)}</div>
+          </Section>
         </>
       ) : (
-        <Card className="text-center">
-          <div className="text-5xl">{trip.emoji}</div>
-          <p className="mt-3 font-semibold">No expenses yet</p>
-          <p className="mt-1 text-sm text-muted">Tap <b>＋</b> to pay with UPI, add one by hand, or import bank SMS.</p>
-        </Card>
+        <div className="rounded-[22px] border border-dashed border-line px-6 py-10 text-center">
+          <p className="text-[16px] font-semibold">Nothing spent yet</p>
+          <p className="mx-auto mt-1.5 max-w-[260px] text-[14px] text-muted">Tap <b className="text-ink">Add</b> to pay with UPI, log cash, or import bank SMS.</p>
+        </div>
       )}
     </div>
   )
@@ -159,36 +176,52 @@ export function Activity({ stats, onEdit, filter, setFilter }) {
     return g
   }, [stats.list, q, filter])
   const net = (items) => items.reduce((b, e) => b + (e.type === 'credit' ? (stats.countCredits ? -e.amount : 0) : e.amount), 0)
-  const total = groups.reduce((a, g) => a + net(g.items), 0)
+  const total = filter === 'received'
+    ? groups.reduce((a, g) => a + g.items.reduce((b, e) => b + e.amount, 0), 0)
+    : groups.reduce((a, g) => a + net(g.items), 0)
+
+  const chip = (active) => `shrink-0 h-9 rounded-full px-4 text-[13.5px] font-medium border transition ${active ? 'border-ink bg-ink text-[var(--bg)]' : 'border-line bg-surface text-ink'}`
 
   return (
-    <div className="space-y-3">
-      <input className={inputCls + ' bg-surface'} placeholder="🔍  Search merchant, note, amount" value={q} onChange={(e) => setQ(e.target.value)} />
+    <div className="space-y-4">
+      <div className="relative">
+        <Search size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
+        <input className={inputCls + ' pl-11'} placeholder="Search merchant, note, amount" value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
       <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
-        <button onClick={() => setFilter(null)} className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium ${!filter ? 'bg-ink text-surface' : 'bg-surface'}`}>All</button>
-        <button onClick={() => setFilter(filter === 'received' ? null : 'received')} className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium ${filter === 'received' ? 'bg-ink text-surface' : 'bg-surface text-good'}`}>＋ Received</button>
+        <button onClick={() => setFilter(null)} className={chip(!filter)}>All</button>
+        <button onClick={() => setFilter(filter === 'received' ? null : 'received')} className={chip(filter === 'received')}>Received</button>
         {CATEGORIES.map((c) => (
-          <button key={c.id} onClick={() => setFilter(filter === c.id ? null : c.id)} className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium ${filter === c.id ? 'bg-ink text-surface' : 'bg-surface'}`}>
-            {c.emoji} {c.label}
-          </button>
+          <button key={c.id} onClick={() => setFilter(filter === c.id ? null : c.id)} className={chip(filter === c.id)}>{c.label}</button>
         ))}
       </div>
-      {(q || filter) && <p className="px-1 text-sm text-muted">Total: <b className="num text-ink">{money(filter === 'received' ? groups.reduce((a, g) => a + g.items.reduce((b, e) => b + e.amount, 0), 0) : total)}</b></p>}
+      {(q || filter) && <p className="px-1 text-[13.5px] text-muted">{groups.reduce((a, g) => a + g.items.length, 0)} entries · <b className="num text-ink">{money(total)}</b></p>}
       {groups.map((g) => (
-        <section key={g.k} className="rounded-3xl bg-surface p-3">
-          <div className="flex justify-between px-2 pb-1 text-sm">
-            <span className="font-semibold">{dayLabel(g.date)}</span>
-            <span className="num text-muted">{money(net(g.items))}</span>
+        <section key={g.k}>
+          <div className="mb-2 flex justify-between px-1">
+            <span className="eyebrow">{dayLabel(g.date)}</span>
+            <span className="num text-[12.5px] font-medium text-muted">{money(net(g.items))}</span>
           </div>
-          {g.items.map((e) => <ExpenseRow key={e.id} e={e} onClick={() => onEdit(e)} />)}
+          <div className="divide-y divide-line overflow-hidden rounded-[22px] border border-line bg-surface">
+            {g.items.map((e) => <ExpenseRow key={e.id} e={e} onClick={() => onEdit(e)} />)}
+          </div>
         </section>
       ))}
-      {!groups.length && <p className="py-16 text-center text-muted">Nothing here yet.</p>}
+      {!groups.length && <p className="py-20 text-center text-muted">Nothing here yet.</p>}
     </div>
   )
 }
 
 /* ---------------- Settings ---------------- */
+function Step({ n, children }) {
+  return (
+    <li className="flex gap-3.5">
+      <span className="num grid h-6 w-6 shrink-0 place-items-center rounded-full border border-line text-[12px] font-semibold">{n}</span>
+      <div className="min-w-0 flex-1 pt-0.5">{children}</div>
+    </li>
+  )
+}
+
 export function Settings({ state, actions, trip, stats, toast, onSync }) {
   const [key, setKey] = useState(state.settings.syncKey)
   const [testing, setTesting] = useState(false)
@@ -201,9 +234,9 @@ export function Settings({ state, actions, trip, stats, toast, onSync }) {
     try {
       const r = await fetch(`/api/ingest?since=${Date.now()}`, { headers: { 'X-Ingest-Key': key.trim() } })
       const j = await r.json().catch(() => ({}))
-      if (r.ok) { toast('✓ Connected — auto-capture is on'); setTimeout(onSync, 300) }
+      if (r.ok) { toast('Connected. Auto-capture is on'); setTimeout(onSync, 300) }
       else toast(j.error || `Error ${r.status}`)
-    } catch { toast('Could not reach /api/ingest — is the app deployed on Vercel?') }
+    } catch { toast('Could not reach /api/ingest. Is the app deployed?') }
     setTesting(false)
   }
 
@@ -219,56 +252,54 @@ export function Settings({ state, actions, trip, stats, toast, onSync }) {
   }
 
   return (
-    <div className="space-y-4">
-      <section className="rounded-3xl bg-surface p-5">
-        <h3 className="mb-1 font-semibold">⚡ Auto-capture from bank SMS</h3>
-        <p className="mb-4 text-sm text-muted">Your Pixel forwards each bank SMS to this app’s private inbox. Payments appear here automatically — even ones made directly in GPay or PhonePe.</p>
-        <Field label="Secret key" hint="Same value as INGEST_KEY in your Vercel project settings.">
+    <div className="space-y-7">
+      <Section title="Auto-capture">
+        <p className="mb-5 text-[14.5px] leading-relaxed text-muted">Your Pixel forwards bank SMS to this app’s private inbox, so payments made anywhere (GPay, PhonePe, card) show up on their own.</p>
+        <Field label="Secret key" hint="Same value as INGEST_KEY in your Vercel project.">
           <div className="flex gap-2">
             <input className={inputCls} type="password" placeholder="your-secret-key" value={key} onChange={(e) => setKey(e.target.value)} />
             <Btn onClick={saveKey} disabled={!key.trim() || testing}>{testing ? '…' : 'Connect'}</Btn>
           </div>
         </Field>
-        <ol className="mt-5 space-y-3 text-sm">
-          <li className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-accent text-xs font-bold text-white">1</span>
-            <span>Install <b>SMS Forwarder</b> (by bogkonstantin — free, open source, on Play Store) on your Pixel.</span></li>
-          <li className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-accent text-xs font-bold text-white">2</span>
-            <span>Add a forwarding rule → <b>Sender</b>: leave as <i>*</i> (or your bank’s sender) → <b>Webhook URL</b>:
-              <button onClick={() => copy(endpoint)} className="mt-1.5 block w-full break-all rounded-xl bg-sunken p-2.5 text-left font-mono text-xs">{endpoint} <span className="text-accent">⧉</span></button>
-              Leave the JSON template as is: the app reads the <code>text</code> field. Allow SMS permission.
-            </span></li>
-          <li className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-accent text-xs font-bold text-white">3</span>
-            <span>Pay anywhere with UPI. Open this app — new payments are added and categorised. Non-payment SMS (OTPs etc.) are ignored.</span></li>
+        <ol className="mt-6 space-y-4 text-[14px] leading-relaxed">
+          <Step n={1}>Install <b>SMS Forwarder</b> by bogkonstantin (free, Play Store).</Step>
+          <Step n={2}>
+            Add a rule with sender <b>*</b> and this webhook URL:
+            <button onClick={() => copy(endpoint)} className="mt-2 flex w-full items-start gap-2 rounded-xl bg-sunken p-3 text-left font-mono text-[11.5px] leading-relaxed">
+              <span className="min-w-0 flex-1 break-all">{endpoint}</span><Copy size={14} className="mt-0.5 shrink-0 text-muted" />
+            </button>
+            <span className="mt-1.5 block text-muted">Keep the default JSON template.</span>
+          </Step>
+          <Step n={3}>Pay as usual. New payments appear when you open the app.</Step>
         </ol>
-        <div className="mt-5 rounded-2xl bg-sunken p-4 text-sm">
-          <p className="mb-2 font-semibold">So nothing gets missed</p>
-          <ul className="space-y-1.5 text-muted">
-            <li>🔋 Settings → Apps → SMS Forwarder → Battery → <b className="text-ink">Unrestricted</b></li>
-            <li>💳 Turn off <b className="text-ink">UPI Lite</b> in GPay/PhonePe: Lite payments send no bank SMS</li>
-            <li>📶 No data when an SMS arrived? Use <b className="text-ink">＋ → Import bank SMS</b>. Duplicates are skipped</li>
-            <li>🔎 Messages the app can’t read appear under <b className="text-ink">Needs review</b> on Home</li>
-          </ul>
-        </div>
-        <label className="mt-5 flex items-center justify-between gap-3 text-sm">
-          <span>Subtract money received from total<br /><span className="text-xs text-muted">Refunds and friends paying you back are always recorded (in green). Turn this on to reduce your trip total by them.</span></span>
-          <input type="checkbox" className="h-5 w-5 accent-[var(--accent)]" checked={state.settings.includeCredits} onChange={(e) => actions.setSettings({ includeCredits: e.target.checked })} />
+      </Section>
+
+      <Section title="So nothing gets missed">
+        <ul className="space-y-3 text-[14px] leading-snug">
+          <li><b>Battery:</b> <span className="text-muted">Settings → Apps → SMS Forwarder → Battery → Unrestricted</span></li>
+          <li><b>UPI Lite off:</b> <span className="text-muted">Lite payments don’t send bank SMS</span></li>
+          <li><b>No signal?</b> <span className="text-muted">Copy the SMS later and use Add → Import bank SMS. Duplicates are skipped.</span></li>
+        </ul>
+        <label className="mt-5 flex items-center justify-between gap-4 border-t border-line pt-5 text-[14px]">
+          <span><b>Subtract money received</b><br /><span className="text-[13px] text-muted">Refunds and paybacks are always recorded. Turn on to reduce your trip total by them.</span></span>
+          <input type="checkbox" className="h-5 w-5 shrink-0 accent-[var(--accent)]" checked={state.settings.includeCredits} onChange={(e) => actions.setSettings({ includeCredits: e.target.checked })} />
         </label>
-      </section>
+      </Section>
 
-      <section className="rounded-3xl bg-surface p-5">
-        <h3 className="mb-4 font-semibold">{trip.emoji} Trip details</h3>
-        <TripForm key={trip.id} trip={trip} submitLabel="Save trip" onSave={(t) => { actions.updateTrip(trip.id, t); toast('Trip saved') }} />
-      </section>
+      <Section title="Trip">
+        <TripForm key={trip.id} trip={trip} submitLabel="Save changes" onSave={(t) => { actions.updateTrip(trip.id, t); toast('Trip saved') }} />
+      </Section>
 
-      <section className="space-y-2 rounded-3xl bg-surface p-5">
-        <h3 className="mb-2 font-semibold">Your data</h3>
-        <p className="mb-2 text-sm text-muted">Everything is stored on this phone only.</p>
-        <Btn variant="soft" className="w-full" onClick={() => download(`${trip.name}-expenses.csv`, toCSV(stats.list), 'text/csv')}>Export CSV (Sheets / Excel)</Btn>
-        <Btn variant="soft" className="w-full" onClick={() => download('tripwise-backup.json', JSON.stringify(state), 'application/json')}>Download backup</Btn>
-        <Btn variant="soft" className="w-full" onClick={() => fileRef.current.click()}>Restore backup</Btn>
+      <Section title="Data">
+        <p className="mb-4 text-[14px] text-muted">Stored on this phone only.</p>
+        <div className="grid grid-cols-2 gap-2">
+          <Btn variant="soft" onClick={() => download(`${trip.name}-expenses.csv`, toCSV(stats.list), 'text/csv')}><Download size={16} /> CSV</Btn>
+          <Btn variant="soft" onClick={() => download('tripwise-backup.json', JSON.stringify(state), 'application/json')}><Download size={16} /> Backup</Btn>
+          <Btn variant="soft" onClick={() => fileRef.current.click()}><Upload size={16} /> Restore</Btn>
+          <Btn variant="danger" onClick={() => confirm(`Delete "${trip.name}" and all its expenses?`) && actions.deleteTrip(trip.id)}><Trash2 size={16} /> Delete trip</Btn>
+        </div>
         <input ref={fileRef} type="file" accept="application/json" hidden onChange={(e) => e.target.files[0] && importJSON(e.target.files[0])} />
-        <Btn variant="danger" className="w-full" onClick={() => confirm(`Delete "${trip.name}" and all its expenses?`) && actions.deleteTrip(trip.id)}>Delete this trip</Btn>
-      </section>
+      </Section>
     </div>
   )
 }
