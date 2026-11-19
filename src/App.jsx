@@ -164,7 +164,7 @@ export default function App() {
       />
       <PaySheet open={sheet === 'pay'} onClose={closeSheet} learned={state.learned} onPay={onPay} initialQr={shared.qr} />
       <PasteSheet
-        open={sheet === 'paste'} onClose={closeSheet} initialText={shared.text}
+        open={sheet === 'paste'} onClose={closeSheet} initialText={shared.text} tripStart={trip.start}
         onImport={(list) => { const n = actions.importParsed(list, 'sms'); toast(n ? `Added ${n} entr${n > 1 ? 'ies' : 'y'}` : 'Already added — no duplicates') }}
       />
       <ConfirmSheet

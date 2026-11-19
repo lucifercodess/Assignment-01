@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { CATEGORIES, categorize, catById } from '../lib/categorize'
-import { parseMany, parseUpiQr, upiLink, prettyMerchant } from '../lib/parser'
+import { parseMany, parseMessage, parseUpiQr, upiLink, prettyMerchant } from '../lib/parser'
 import { money, dayKey, timeLabel, dayLabel, haptic } from '../lib/utils'
-import { ScanLine, ClipboardPaste, ExternalLink } from 'lucide-react'
+import { ScanLine, ClipboardPaste, ExternalLink, FileUp } from 'lucide-react'
 import { Sheet, Btn, Field, inputCls, CatIcon, CAT_ICONS } from './ui'
 
 function CategoryPicker({ value, onChange }) {
@@ -242,10 +242,31 @@ export function PaySheet({ open, onClose, learned, onPay, initialQr }) {
 }
 
 /* ---------------- Paste / share bank SMS ---------------- */
-export function PasteSheet({ open, onClose, onImport, initialText }) {
+/** Read an "SMS Backup & Restore" XML file: received SMS since the trip started. */
+function parseBackup(xml, sinceMs) {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml')
+  const out = []
+  for (const el of doc.getElementsByTagName('sms')) {
+    const date = Number(el.getAttribute('date')) || 0
+    const type = el.getAttribute('type')
+    if (date < sinceMs || (type && type !== '1')) continue
+    const p = parseMessage(el.getAttribute('body') || '', date)
+    if (p) out.push(p)
+  }
+  return out.sort((a, b) => +new Date(b.date) - +new Date(a.date))
+}
+
+export function PasteSheet({ open, onClose, onImport, initialText, tripStart }) {
   const [text, setText] = useState('')
-  useEffect(() => { if (open) setText(initialText || '') }, [open, initialText])
-  const parsed = parseMany(text)
+  const [fromFile, setFromFile] = useState(null)
+  const fileRef = useRef(null)
+  useEffect(() => { if (open) { setText(initialText || ''); setFromFile(null) } }, [open, initialText])
+  const parsed = fromFile || parseMany(text)
+
+  const readFile = async (f) => {
+    const sinceMs = tripStart ? +new Date(tripStart + 'T00:00') : 0
+    try { setFromFile(parseBackup(await f.text(), sinceMs)); setText('') } catch { setFromFile([]) }
+  }
 
   const pasteClip = async () => {
     try { setText(await navigator.clipboard.readText()) } catch { /* ignore */ }
@@ -262,7 +283,12 @@ export function PasteSheet({ open, onClose, onImport, initialText }) {
       />
       <div className="mt-2 flex gap-2">
         <Btn variant="soft" className="h-11 flex-1 text-[14px]" onClick={pasteClip}><ClipboardPaste size={16} /> Paste from clipboard</Btn>
-        {text && <Btn variant="soft" className="h-11 text-[14px]" onClick={() => setText('')}>Clear</Btn>}
+        {(text || fromFile) && <Btn variant="soft" className="h-11 text-[14px]" onClick={() => { setText(''); setFromFile(null) }}>Clear</Btn>}
+      </div>
+      <Btn variant="soft" className="mt-2 h-11 w-full text-[14px]" onClick={() => fileRef.current.click()}><FileUp size={16} /> Import SMS backup file (.xml)</Btn>
+      <input ref={fileRef} type="file" accept=".xml,text/xml,application/xml" hidden onChange={(e) => e.target.files[0] && readFile(e.target.files[0])} />
+      {fromFile && <p className="mt-3 text-[13.5px] text-muted">Found <b className="text-ink">{fromFile.length}</b> payment{fromFile.length === 1 ? '' : 's'} since your trip started.</p>}
+      <div className="hidden">
       </div>
       {parsed.length > 0 && (
         <ul className="mt-4 divide-y divide-line overflow-hidden rounded-[22px] border border-line">
@@ -278,7 +304,7 @@ export function PasteSheet({ open, onClose, onImport, initialText }) {
           ))}
         </ul>
       )}
-      {text && !parsed.length && <p className="mt-4 text-[13.5px] text-warn">Couldn’t find a completed payment in that text.</p>}
+      {(text || fromFile) && !parsed.length && <p className="mt-4 text-[13.5px] text-warn">Couldn’t find a completed payment in that text.</p>}
       <Btn className="mt-4 w-full" disabled={!parsed.length} onClick={() => { onImport(parsed); onClose() }}>
         Add {parsed.length || ''} {parsed.length === 1 ? 'entry' : 'entries'}
       </Btn>
